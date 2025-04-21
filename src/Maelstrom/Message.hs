@@ -2,7 +2,7 @@ module Maelstrom.Message (
     Message (..),
     InitRequest (..),
     InitResponse (..),
-    getInitId,
+    getNodeId,
     mkInitResponse,
     msgToString,
     MessageId,
@@ -10,11 +10,9 @@ module Maelstrom.Message (
 ) where
 
 import Data.Aeson (FromJSON, ToJSON, encode, object, parseJSON, toJSON, withObject, (.:))
-import Data.Aeson.Decoding (eitherDecode)
 import Data.Aeson.Types ((.=))
 import Data.ByteString.Lazy.Char8 qualified as C8
 import Data.Text (Text)
-import GHC.Natural (Natural)
 
 {-
 {src: "c1",
@@ -53,8 +51,8 @@ data InitResponse
         MessageId -- in reply to
     deriving stock (Show)
 
-getInitId :: Message InitRequest -> Text
-getInitId m =
+getNodeId :: Message InitRequest -> Text
+getNodeId m =
     let (InitRequest _ _ nodeId _) = body m
      in nodeId
 

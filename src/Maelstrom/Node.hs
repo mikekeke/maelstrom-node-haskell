@@ -1,13 +1,13 @@
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Maelstrom.Node (
     spawnNode,
     ReqHandler,
-    debug,
     Node,
 ) where
 
 import Control.Concurrent (newMVar, putMVar, takeMVar)
+import Control.Concurrent.Async (Async, async, link)
 import Control.Monad (forever, guard)
 import Data.Aeson (
     FromJSON,
@@ -28,18 +28,17 @@ import Data.Text (Text)
 import Data.Void (Void)
 import Maelstrom.IO qualified as MIO
 import Maelstrom.Message (
-    CommonMsg,
     InitRequest,
     InitResponse,
     Message (Message),
     MessageId,
-    getInitId,
+    getNodeId,
     mkInitResponse,
-    msgToString,
  )
 
 data Node = Node
     { nodeId :: Text
+    , mainLoopAsync :: Async Void
     }
 
 type ReqHandler req resp = req -> resp
@@ -48,13 +47,15 @@ spawnNode :: (FromJSON req, ToJSON resp) => ReqHandler req resp -> IO Node
 spawnNode hlr = do
     initReq <- awaitInitMessage
     let msgIdSeed = 1
+        nodeId = getNodeId initReq
+
     getNextId <- mkIdGen msgIdSeed
     initMsgId <- getNextId
     guard (initMsgId == msgIdSeed)
     respondInitOk (mkInitResponse initReq msgIdSeed)
-    let node = Node (getInitId initReq)
-    spawnMainLoop hlr getNextId -- TODO: async process, add Async to node, add node kill
-    pure node
+    mainLoopAsync <- spawnMainLoop hlr getNextId -- TODO: async process, add Async to node, add node kill
+    link mainLoopAsync
+    pure $ Node{..}
 
 mkIdGen :: Integer -> IO (IO MessageId)
 mkIdGen seed = do
@@ -83,38 +84,43 @@ spawnMainLoop ::
     (FromJSON req, ToJSON resp) =>
     ReqHandler req resp ->
     IO MessageId ->
-    IO Void
+    IO (Async Void)
 spawnMainLoop msgHandler getNextId =
     -- TODO: each message handled async?
-    forever $ do
-        rawRequest <- MIO.receiveMessage
+    async $
+        forever $ do
+            rawRequest <- MIO.receiveMessage
 
-        MIO.logNB $ "## Raw request: " <> rawRequest
+            MIO.logNB $ "## Raw request: " <> rawRequest
 
-        case eitherDecode' rawRequest :: Either String (Message Aeson.Object) of
-            Left e -> error e
-            Right (Message from to b) -> do
-                msgId <- getNextId
-                MIO.logN $ "Parsed req body: " <> show b
-                let (common, users) = splitBody b
-                    Just commonResp = toCommonResp msgId common -- TODO: handle error (should not happen)
+            case eitherDecode' rawRequest :: Either String (Message Aeson.Object) of
+                Left e -> error e
+                Right inMsg@(Message from to b) -> do
+                    msgId <- getNextId
+                    MIO.logN $ "Parsed req body: " <> show b
+                    let (common, users) = splitBody b
 
-                -- _ = AT.parseEither (a -> Parser b) a
-                users' <- case Aeson.fromJSON @req (Aeson.toJSON users) of
-                    AT.Error s -> error $ "users re-jsoning failed: " <> s
-                    AT.Success a -> pure a
+                    commonResp <-
+                        maybe
+                            (error $ "Failed to get message id from: " <> show inMsg)
+                            pure
+                            (toCommonResp msgId common)
 
-                let userResp = msgHandler users'
+                    -- _ = AT.parseEither (a -> Parser b) a
+                    users' <- case Aeson.fromJSON @req (Aeson.toJSON users) of
+                        AT.Error s -> error $ "users re-jsoning failed: " <> s
+                        AT.Success a -> pure a
 
-                respToSend <- case Aeson.toJSON userResp of
-                    Aeson.Object o -> pure (commonResp <> o)
-                    other -> error $ "Bad user response: " <> show other
-                MIO.logN $ "respToSend: " <> show respToSend
-                MIO.logN $ "respToSend enc: " <> show (encode respToSend)
-                MIO.sendMessage (encode $ Message to from respToSend)
+                    let userResp = msgHandler users'
+
+                    respToSend <- case Aeson.toJSON userResp of
+                        Aeson.Object o -> pure (commonResp <> o)
+                        other -> error $ "Bad user response: " <> show other
+                    MIO.logN $ "respToSend: " <> show respToSend
+                    MIO.logN $ "respToSend enc: " <> show (encode respToSend)
+                    MIO.sendMessage (encode $ Message to from respToSend)
   where
 
--- toCommonResp :: AT.Object -> Integer
 toCommonResp :: Integer -> Aeson.Object -> Maybe (KM.KeyMap Value)
 toCommonResp msgId obj = do
     incId :: Integer <- Aeson.parseMaybe (.: "msg_id") obj
@@ -138,10 +144,10 @@ splitBody = ifoldr' f (mempty, mempty) -- TODO: toJSON both values in pair?
 
 -- >>> debug
 -- "Success (CommonMsg {cmMsgId = 1})"
-debug :: IO String
-debug = do
-    (Message _ _ body) <-
-        Aeson.eitherDecodeFileStrict' @(Message Aeson.Object) "req.json"
-            >>= either error pure
-    let (common, users) = splitBody body
-    pure $ show $ Aeson.fromJSON @CommonMsg (Aeson.toJSON common)
+-- debug :: IO String
+-- debug = do
+--     (Message _ _ body) <-
+--         Aeson.eitherDecodeFileStrict' @(Message Aeson.Object) "req.json"
+--             >>= either error pure
+--     let (common, users) = splitBody body
+--     pure $ show $ Aeson.fromJSON @CommonMsg (Aeson.toJSON common)
