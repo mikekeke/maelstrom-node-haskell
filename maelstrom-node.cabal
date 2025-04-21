@@ -50,12 +50,12 @@ common lang
     UndecidableInstances
 
   ghc-options:
-    -- -Werror 
     -Wall -Wcompat -Wincomplete-uni-patterns
     -Wincomplete-record-updates -Wredundant-constraints
     -Wmissing-export-lists -Wmissing-deriving-strategies
     -Wmissing-fields
 
+-- -Werror 
 library
   import:           lang
   exposed-modules:  Maelstrom
