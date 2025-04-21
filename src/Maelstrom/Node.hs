@@ -17,7 +17,6 @@ import Data.Aeson (
     Value,
     eitherDecode,
     eitherDecode',
-    encode,
     (.:),
  )
 import Data.Aeson qualified as Aeson

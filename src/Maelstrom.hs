@@ -1,6 +1,7 @@
 module Maelstrom (
     Node.spawnNode,
     Node.waitNode,
+    Node.simpleHandler,
 ) where
 
 import Data.Aeson (FromJSON)
