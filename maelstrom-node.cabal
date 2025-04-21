@@ -56,7 +56,8 @@ common lang
 
 library
   import:           lang
-  exposed-modules:  Mealstrom
+  exposed-modules:  
+    Mealstrom
   other-modules:
     Mealstrom.Message
     Mealstrom.Node

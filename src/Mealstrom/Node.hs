@@ -4,6 +4,7 @@ module Mealstrom.Node (
     spawnNode,
     ReqHandler,
     debug,
+    Node
 ) where
 
 import Control.Concurrent (newMVar, putMVar, takeMVar, threadDelay)
