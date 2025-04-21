@@ -4,10 +4,11 @@ module Maelstrom.Node (
     spawnNode,
     ReqHandler,
     Node,
+    waitNode,
 ) where
 
 import Control.Concurrent (newMVar, putMVar, takeMVar)
-import Control.Concurrent.Async (Async, async, link)
+import Control.Concurrent.Async (Async, async, link, wait)
 import Control.Monad (forever, guard)
 import Data.Aeson (
     FromJSON,
@@ -56,6 +57,10 @@ spawnNode hlr = do
     mainLoopAsync <- spawnMainLoop hlr getNextId -- TODO: async process, add Async to node, add node kill
     link mainLoopAsync
     pure $ Node{..}
+
+-- | Will wait node main loop to finish effectively blocking current thread forever
+waitNode :: Node -> IO Void
+waitNode (Node _ as) = wait as
 
 mkIdGen :: Integer -> IO (IO MessageId)
 mkIdGen seed = do
