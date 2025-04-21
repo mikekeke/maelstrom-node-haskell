@@ -1,4 +1,4 @@
-module Mealstrom.Message (
+module Maelstrom.Message (
     Message (..),
     InitRequest (..),
     InitResponse (..),

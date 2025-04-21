@@ -56,11 +56,11 @@ common lang
 
 library
   import:           lang
-  exposed-modules:  
-    Mealstrom
+  exposed-modules:  Maelstrom
   other-modules:
-    Mealstrom.Message
-    Mealstrom.Node
+    Maelstrom.IO
+    Maelstrom.Message
+    Maelstrom.Node
 
   -- other-extensions:
   build-depends:

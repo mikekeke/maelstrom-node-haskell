@@ -1,31 +1,33 @@
 {-# LANGUAGE TemplateHaskell #-}
 
-module Mealstrom.Node (
+module Maelstrom.Node (
     spawnNode,
     ReqHandler,
     debug,
-    Node
+    Node,
 ) where
 
-import Control.Concurrent (newMVar, putMVar, takeMVar, threadDelay)
+import Control.Concurrent (newMVar, putMVar, takeMVar)
 import Control.Monad (forever, guard)
-import Data.Aeson (FromJSON, ToJSON, Value (String), eitherDecode, eitherDecode', encode, (.:))
+import Data.Aeson (
+    FromJSON,
+    ToJSON,
+    Value,
+    eitherDecode,
+    eitherDecode',
+    encode,
+    (.:),
+ )
 import Data.Aeson qualified as Aeson
 import Data.Aeson.KeyMap qualified as AKM
 import Data.Aeson.KeyMap qualified as KM
-import Data.Aeson.TH (Options (fieldLabelModifier))
 import Data.Aeson.Types qualified as AT
 import Data.Aeson.Types qualified as Aeson
-import Data.ByteString.Lazy.Char8 qualified as C8
-import Data.Char (toLower)
 import Data.Foldable.WithIndex (FoldableWithIndex (ifoldr'))
 import Data.Text (Text)
 import Data.Void (Void)
-import Debug.Trace (traceM)
-import GHC.Exts (fromString)
-import GHC.Generics (Generic)
-import GHC.Unicode (isUpper)
-import Mealstrom.Message (
+import Maelstrom.IO qualified as MIO
+import Maelstrom.Message (
     CommonMsg,
     InitRequest,
     InitResponse,
@@ -35,7 +37,6 @@ import Mealstrom.Message (
     mkInitResponse,
     msgToString,
  )
-import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data Node = Node
     { nodeId :: Text
@@ -45,21 +46,13 @@ type ReqHandler req resp = req -> resp
 
 spawnNode :: (FromJSON req, ToJSON resp) => ReqHandler req resp -> IO Node
 spawnNode hlr = do
-    logN "## Starting node"
     initReq <- awaitInitMessage
-
-    logN $ "## Init msg: " <> show initReq
     let msgIdSeed = 1
-
     getNextId <- mkIdGen msgIdSeed
-
     initMsgId <- getNextId
     guard (initMsgId == msgIdSeed)
-
     respondInitOk (mkInitResponse initReq msgIdSeed)
-
     let node = Node (getInitId initReq)
-
     spawnMainLoop hlr getNextId -- TODO: async process, add Async to node, add node kill
     pure node
 
@@ -74,8 +67,7 @@ mkIdGen seed = do
 
 awaitInitMessage :: IO (Message InitRequest)
 awaitInitMessage = do
-    m <- receiveMessage
-    logN $ "## Raw Init: " <> show m
+    m <- MIO.receiveMessage
 
     case eitherDecode m of
         Left _err -> error "Parse err" -- <> LBS.pack  err
@@ -84,17 +76,7 @@ awaitInitMessage = do
 
 respondInitOk :: Message InitResponse -> IO ()
 respondInitOk m = do
-    logN $ "## Repl Init: " <> msgToString m
-    sendMessage (encode m)
-    logN $ "## Repl Init done"
-
-receiveMessage :: IO C8.ByteString
-receiveMessage = fromString <$> getLine
-
-sendMessage :: C8.ByteString -> IO ()
-sendMessage msg = do
-    let msg' = C8.unpack msg
-    putStrLn msg' >> hFlush stdout
+    MIO.sendMessage (encode m)
 
 spawnMainLoop ::
     forall req resp.
@@ -105,15 +87,15 @@ spawnMainLoop ::
 spawnMainLoop msgHandler getNextId =
     -- TODO: each message handled async?
     forever $ do
-        rawRequest <- receiveMessage
+        rawRequest <- MIO.receiveMessage
 
-        logNB $ "## Raw request: " <> rawRequest
+        MIO.logNB $ "## Raw request: " <> rawRequest
 
         case eitherDecode' rawRequest :: Either String (Message Aeson.Object) of
             Left e -> error e
             Right (Message from to b) -> do
                 msgId <- getNextId
-                logN $ "Parsed req body: " <> show b
+                MIO.logN $ "Parsed req body: " <> show b
                 let (common, users) = splitBody b
                     Just commonResp = toCommonResp msgId common -- TODO: handle error (should not happen)
 
@@ -127,9 +109,9 @@ spawnMainLoop msgHandler getNextId =
                 respToSend <- case Aeson.toJSON userResp of
                     Aeson.Object o -> pure (commonResp <> o)
                     other -> error $ "Bad user response: " <> show other
-                logN $ "respToSend: " <> show respToSend
-                logN $ "respToSend enc: " <> show (encode respToSend)
-                sendMessage (encode $ Message to from respToSend)
+                MIO.logN $ "respToSend: " <> show respToSend
+                MIO.logN $ "respToSend enc: " <> show (encode respToSend)
+                MIO.sendMessage (encode $ Message to from respToSend)
   where
 
 -- toCommonResp :: AT.Object -> Integer
@@ -154,12 +136,6 @@ splitBody = ifoldr' f (mempty, mempty) -- TODO: toJSON both values in pair?
 
 -- $(deriveJSON defaultOptions ''CommonMsg)
 
-logN :: String -> IO ()
-logN msg = hPutStrLn stderr msg >> hFlush stderr
-
-logNB :: C8.ByteString -> IO ()
-logNB = logN . C8.unpack
-
 -- >>> debug
 -- "Success (CommonMsg {cmMsgId = 1})"
 debug :: IO String
@@ -169,17 +145,3 @@ debug = do
             >>= either error pure
     let (common, users) = splitBody body
     pure $ show $ Aeson.fromJSON @CommonMsg (Aeson.toJSON common)
-
--- snakeCase :: String -> String
--- snakeCase = symbCase '_'
-
--- symbCase :: Char -> (String -> String)
--- symbCase sym =  u . applyFirst toLower
---   where u []                       = []
---         u (x:xs) | isUpper x = sym : toLower x : u xs
---                  | otherwise = x : u xs
-
--- applyFirst :: (Char -> Char) -> String -> String
--- applyFirst _ []     = []
--- applyFirst f [x]    = [f x]
--- applyFirst f (x:xs) = f x: xs
