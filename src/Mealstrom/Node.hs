@@ -24,8 +24,16 @@ import Debug.Trace (traceM)
 import GHC.Exts (fromString)
 import GHC.Generics (Generic)
 import GHC.Unicode (isUpper)
-import Mealstrom.Message (CommonMsg, 
-    InitRequest, InitResponse, Message (Message), MessageId, getInitId, mkInitResponse, msgToString)
+import Mealstrom.Message (
+    CommonMsg,
+    InitRequest,
+    InitResponse,
+    Message (Message),
+    MessageId,
+    getInitId,
+    mkInitResponse,
+    msgToString,
+ )
 import System.IO (hFlush, hPutStrLn, stderr, stdout)
 
 data Node = Node
