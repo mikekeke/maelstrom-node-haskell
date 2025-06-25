@@ -5,6 +5,7 @@ module Maelstrom (
     Node.messageHandler,
     Node.rawHandler,
     Node.reply,
+    Node.ReqHandler,
     Message (Message),
     MessageId,
 ) where

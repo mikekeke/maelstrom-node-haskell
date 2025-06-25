@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE RecordWildCards #-}
 
 module Maelstrom.Node (
@@ -45,26 +46,39 @@ import Maelstrom.Message (
     mkInitResponse,
  )
 
+-- TODO: fix all usages of `error`
+
 data Node = Node
     { nodeId :: Text
     , mainLoopAsync :: Async Void
     }
 
-data ReqHandler req resp
-    = SimpleH (req -> IO resp)
-    | MessageH (Message req -> MessageId -> IO (Message resp))
-    | RawH (C8.ByteString -> MessageId -> IO C8.ByteString)
+data ReqHandler where
+    RawH ::
+        (C8.ByteString -> MessageId -> IO C8.ByteString) ->
+        ReqHandler
+    SimpleH ::
+        (FromJSON req, ToJSON resp) =>
+        (req -> IO resp) ->
+        ReqHandler
+    MessageH ::
+        (FromJSON reqBody, ToJSON respBody) =>
+        (Message reqBody -> MessageId -> IO (Message respBody)) ->
+        ReqHandler
 
-simpleHandler :: (req -> IO resp) -> ReqHandler req resp
+simpleHandler :: (FromJSON req, ToJSON resp) => (req -> IO resp) -> ReqHandler
 simpleHandler = SimpleH
 
-messageHandler :: (Message req -> MessageId -> IO (Message resp)) -> ReqHandler req resp
+messageHandler ::
+    (FromJSON reqBody, ToJSON respBody) =>
+    (Message reqBody -> MessageId -> IO (Message respBody)) ->
+    ReqHandler
 messageHandler = MessageH
 
-rawHandler :: (C8.ByteString -> MessageId -> IO C8.ByteString) -> ReqHandler req resp
+rawHandler :: (C8.ByteString -> MessageId -> IO C8.ByteString) -> ReqHandler
 rawHandler = RawH
 
-spawnNode :: (FromJSON req, ToJSON resp) => ReqHandler req resp -> IO Node
+spawnNode :: ReqHandler -> IO Node
 spawnNode hlr = do
     initReq <- awaitInitMessage
     let msgIdSeed = 1
@@ -78,9 +92,7 @@ spawnNode hlr = do
     pure $ Node{..}
 
 spawnMainLoop ::
-    forall req resp.
-    (FromJSON req, ToJSON resp) =>
-    ReqHandler req resp ->
+    ReqHandler ->
     IO MessageId ->
     IO (Async Void)
 spawnMainLoop msgHandler getNextId =
@@ -142,8 +154,8 @@ handleMessage rawMsg handle respId = do
 {- | Utility function to help to reply to `Message`.
      Can be handy for `handleMessage` handler.
 
-    - Request body need to be decoded as `Aeson.Object`
-    - Response body can be encoded as `Aeson.Object`
+    - Request body will be decoded as `Aeson.Object`
+    - Response body will be encoded as `Aeson.Object`
     - `msg_id` will be set from `MessageId` argument
     - `in_reply_to` will be handled automatically
     - `src` and `dest` fields of response will be handled automatically
@@ -157,7 +169,7 @@ reply ::
     [(Key, v)] ->
     Message Object
 reply (Message from to body) replyId resp =
-    let (commonPart, _userPart) = splitBody body
+    let commonPart = fst $ splitBody body
         commonResp = toCommonRespUnsafe replyId commonPart
         userProvidedData = Aeson.toJSON <$> KM.fromList resp
      in Message to from (commonResp <> userProvidedData)
@@ -178,7 +190,7 @@ handleSimple rawMsg handle respId =
             case Aeson.toJSON userResp of
                 Aeson.Object userResponse ->
                     MIO.sendEncoded $ Message to from (commonResponsePart <> userResponse)
-                other -> error $ "Bad user response: " <> show other
+                other -> error $ "Bad user response: " <> show other -- TODO: throw proper exception or log and ignore malformed request?
   where
     parseBody body = do
         let (commonPart, userPart) = splitBody body
@@ -188,7 +200,7 @@ handleSimple rawMsg handle respId =
                 pure
                 (toCommonResp respId commonPart)
 
-        usersJSON <- case Aeson.fromJSON @req (Aeson.toJSON userPart) of
+        usersJSON <- case Aeson.fromJSON (Aeson.toJSON userPart) of
             AT.Error s -> error $ "users re-jsoning failed: " <> s
             AT.Success a -> pure a
 
