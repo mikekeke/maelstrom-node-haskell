@@ -29,26 +29,26 @@ import Data.Text (Text)
         type: "init_ok"}}
 -}
 
-data Message a = Message -- TODO: split Message to request and response?
-    { src :: Text
-    , dst :: Text
-    , body :: a
+data Message a = Message
+    { src :: !Text
+    , dst :: !Text
+    , body :: !a
     }
     deriving stock (Show)
 
 type MessageId = Integer
 data InitRequest
     = InitRequest
-        MessageId -- message ID
-        Text -- message type
-        Text -- node ID
-        [Text] -- node IDs
+        !MessageId -- message ID
+        !Text -- message type
+        !Text -- node ID
+        ![Text] -- node IDs
     deriving stock (Show)
 
 data InitResponse
     = InitResponse
-        MessageId -- message ID
-        MessageId -- in reply to
+        !MessageId -- message ID
+        !MessageId -- in reply to
     deriving stock (Show)
 
 getNodeId :: Message InitRequest -> Text
